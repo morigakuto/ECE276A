@@ -29,11 +29,7 @@ from src.utils.data_loader import (
     load_part2_data,
 )
 from src.utils.visualizer import save_occupancy_map, save_texture_map
-
-try:
-    import imageio.v2 as iio
-except ImportError:  # pragma: no cover - optional dependency reused from part 3
-    iio = None
+import imageio.v2 as iio
 
 
 def parse_args() -> argparse.Namespace:
