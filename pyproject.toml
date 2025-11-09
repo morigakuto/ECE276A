@@ -1,0 +1,13 @@
+[project]
+name = "ece276a-pr2"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "imageio>=2.34.0",
+    "numpy>=2.2.6",
+    "open3d>=0.19.0",
+    "scipy>=1.15.3",
+]
