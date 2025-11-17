@@ -12,6 +12,7 @@ class ICPResult:
     iterations: int
     converged: bool
     rmse: float
+    accepted: bool = True
 
     def as_homogeneous_matrix(self) -> np.ndarray:
         """Return the SE(d) homogeneous transform corresponding to the result."""
@@ -86,6 +87,7 @@ def run_icp(
         t = R_delta @ t + t_delta
 
         transformed = _transform_points(source, R, t)
+        # Note: 'distances' here contains only filtered distances from _match_correspondences (line 171)
         rmse = _compute_rmse(distances)
 
         iterations = iteration
@@ -95,12 +97,14 @@ def run_icp(
         prev_rmse = rmse
 
     # Recompute correspondences for an accurate final error metric.
+    # _match_correspondences filters distances by max_correspondence_distance (see line 171)
     _, _, final_distances, _ = _match_correspondences(
         tree,
         target,
         transformed,
         max_correspondence_distance,
     )
+    # final_distances contains only filtered distances, not all correspondences
     final_rmse = _compute_rmse(final_distances)
 
     return ICPResult(

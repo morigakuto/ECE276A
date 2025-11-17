@@ -74,6 +74,7 @@ class PoseGraphOptimizer:
         loop_translation_threshold: float = 5.0,
         loop_max_correspondence: float = 1.5,
         loop_icp_max_iterations: int = 80,
+        use_icp_accepted_flag: bool = True,
     ) -> None:
         poses = np.asarray(initial_poses, dtype=float)
         if poses.ndim != 2 or poses.shape[1] != 3:
@@ -87,6 +88,7 @@ class PoseGraphOptimizer:
         self.lidar_scans = lidar_scans
         self.icp_results = icp_results
         self.num_nodes = poses.shape[0]
+        self.use_icp_accepted_flag = use_icp_accepted_flag
 
         self.graph = gtsam.NonlinearFactorGraph()
         self.values = gtsam.Values()
@@ -132,11 +134,19 @@ class PoseGraphOptimizer:
 
     def _odometry_measurement(self, idx: int) -> gtsam.Pose2:
         icp_result = self.icp_results[idx] if idx < len(self.icp_results) else None
-        if isinstance(icp_result, ICPResult):
-            return _pose2_from_icp(icp_result)
 
-        prev_pose = _array_to_pose2(self.initial_poses[idx - 1])
-        curr_pose = _array_to_pose2(self.initial_poses[idx])
+        use_icp = False
+        if isinstance(icp_result, ICPResult):
+            if self.use_icp_accepted_flag:
+                use_icp = icp_result.accepted
+            else:
+                use_icp = icp_result.converged and np.isfinite(icp_result.rmse)
+
+        if use_icp:
+            return _pose2_from_icp(icp_result)
+        else:
+            prev_pose = _array_to_pose2(self.initial_poses[idx - 1])
+            curr_pose = _array_to_pose2(self.initial_poses[idx])
         return prev_pose.between(curr_pose)
 
     def add_fixed_interval_loops(self, interval: int = 10, max_pairs: Optional[int] = None) -> int:

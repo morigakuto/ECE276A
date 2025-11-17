@@ -97,21 +97,60 @@ def run_sequential_icp(
     max_iterations: int = 60,
     tolerance: float = 1e-4,
     max_correspondence_distance: float = 1.0,
+    max_translation_ratio: float = 3.0,      
+    max_rotation_diff: float = np.deg2rad(15),  
+    max_absolute_translation: float = 0.5,
 ) -> Tuple[np.ndarray, List[Optional[ICPResult]]]:
     refined = np.zeros_like(initial_poses)
     refined[0] = initial_poses[0]
     icp_results: List[Optional[ICPResult]] = [None]
+
+    def _validate_icp_result(
+        icp_result: ICPResult,
+        odom_delta: Tuple[float, float, float],
+        max_translation_ratio: float,
+        max_rotation_diff: float,
+        max_absolute_translation: float,
+    ) -> bool:
+        # Get ICP translation and rotation
+        icp_translation = float(np.linalg.norm(icp_result.translation))
+        icp_rotation = icp_result.heading
+
+        # Get odometry translation and rotation
+        odom_tx, odom_ty, odom_theta = odom_delta
+        odom_translation = float(np.sqrt(odom_tx**2 + odom_ty**2))
+
+        if icp_translation > max_absolute_translation:
+            return False
+
+        # Ratio check with odometry
+        if odom_translation > 1e-3:  # If odometry is not near-stationary
+            ratio = icp_translation / odom_translation
+            if ratio > max_translation_ratio:
+                return False
+
+        # Rotation difference check
+        rotation_diff = abs(wrap_angle(icp_rotation - odom_theta))
+        if rotation_diff > max_rotation_diff:
+            return False
+
+        return True
 
     for idx in range(1, len(lidar_scans)):
         reference_scan = lidar_scans[idx - 1]
         moving_scan = lidar_scans[idx]
         if reference_scan.size == 0 or moving_scan.size == 0:
             refined[idx] = refined[idx - 1]
-            icp_results.append(icp_results[-1])
+            icp_results.append(None) 
             continue
 
+        # ICP initial estimate relative transform (based on refined poses)
         initial_relative = current_to_previous_transform(refined[idx - 1], initial_poses[idx])
 
+        # Pure odometry difference for gating (initial_poses only)
+        odom_relative = current_to_previous_transform(initial_poses[idx - 1], initial_poses[idx])
+
+        # Run ICP
         icp_result = icp_2d(
             reference_scan,
             moving_scan,
@@ -120,11 +159,25 @@ def run_sequential_icp(
             tolerance=tolerance,
             max_correspondence_distance=max_correspondence_distance,
         )
+
+        use_icp = False
+        if np.isfinite(icp_result.rmse) and icp_result.converged:
+            use_icp = _validate_icp_result(
+                icp_result,
+                odom_relative,
+                max_translation_ratio,
+                max_rotation_diff,
+                max_absolute_translation,
+            )
+
+        icp_result.accepted = use_icp
         icp_results.append(icp_result)
 
-        if np.isfinite(icp_result.rmse) and icp_result.converged:
+        if use_icp:
+            # Use ICP result
             transform_prev_from_curr = icp_result.as_homogeneous_matrix()
         else:
+            # Fall back to odometry transform
             transform_prev_from_curr = delta_to_matrix(initial_relative)
 
         T_prev_world = pose_to_matrix(refined[idx - 1])
